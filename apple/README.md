@@ -21,7 +21,23 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/pkg -w /pkg s
 On a Mac with Xcode: `cd apple/FounderKit && swift test`.
 
 What the tests prove: decoding of the JSON shapes in `lib/db-ext/approvals.ts` and the routes under
-`app/api/approvals/` (canned from that code, not a live server), the request paths and bodies,
-refusals with their server code, and Swift 6 strict concurrency.
-What they do not prove: behaviour against a running server with the queue merged, anything on iOS or
-macOS, Face ID or Secure Enclave signing, and any UI.
+`app/api/approvals/` (9 canned from that code), the request paths and bodies, refusals with their
+server code, and Swift 6 strict concurrency.
+
+Live tests (`LiveServerTests`, 4 of them) run the same client against a REAL server and are skipped
+unless `FOUNDEROS_URL` is set. Use a throwaway instance with its own database, because one test turns
+the kill switch on:
+
+```
+PORT=4199 GLADOS_DB=/tmp/fk-live.db node scripts/serve.mjs dev     # loopback, no password needed
+cd apple/FounderKit
+docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp -e FOUNDEROS_URL=http://127.0.0.1:4199 \
+  -v "$PWD":/pkg -w /pkg swift:6.1 swift test --scratch-path /tmp/fk-build
+```
+
+Checked 2026-11-10 against the merged queue (main at f39e250): the real state decodes, a proposal on a
+channel with no grant is refused with 403 and code `no_grant`, deciding an unknown id is refused, and the
+kill switch works with no secret and shows in the state. Behind a password, also set `FOUNDEROS_PASSWORD`.
+
+What they do not prove: anything on iOS or macOS, Face ID or Secure Enclave signing, any UI, or an
+armed channel (nothing is armed, so propose, approve and run on a real channel are untested).
