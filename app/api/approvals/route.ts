@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getApprovals, refusalResponse } from '@/lib/approvals-server';
+import { getApprovals, respondFiled } from '@/lib/approvals-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,12 +17,5 @@ export async function GET() {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const approvals = getApprovals();
-  const filed = approvals.propose(body);
-  if (!filed.ok) return refusalResponse(filed);
-  if (!filed.autoApproved) return NextResponse.json({ ok: true, action: filed.action, autoApproved: false }, { status: 201 });
-  const ran = await approvals.execute(filed.action.id, 'auto');
-  return NextResponse.json(
-    { ok: true, action: ran.ok ? ran.action : filed.action, autoApproved: true, execution: ran.ok ? 'ran' : { code: ran.code, error: ran.error } },
-    { status: 201 },
-  );
+  return respondFiled(approvals, approvals.propose(body));
 }

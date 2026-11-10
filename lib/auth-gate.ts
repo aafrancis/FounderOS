@@ -24,8 +24,10 @@ export const OPEN_PATHS = ['/login', '/api/auth/login', '/api/auth/check'] as co
  *  (FounderOS merge). Exact paths only. Each route runs lib/push-auth.ts, which
  *  fails closed: no valid token means the same session/loopback rule as here.
  *  /api/trading/limits: GET with the token (the Markets agent reads its limits);
- *  PATCH refuses the token and takes the operator session only. */
-export const TOKEN_PATHS = ['/api/trading/snapshot', '/api/trading/limits', '/api/usage/push', '/api/plaud/ingest'] as const;
+ *  PATCH refuses the token and takes the operator session only.
+ *  /api/approvals/propose: an agent files a proposal with its own proposing token
+ *  (lib/approval-tokens.ts); the route fails closed and a token can do nothing else. */
+export const TOKEN_PATHS = ['/api/trading/snapshot', '/api/trading/limits', '/api/usage/push', '/api/plaud/ingest', '/api/approvals/propose'] as const;
 
 export function isOpenPath(pathname: string): boolean {
   return (

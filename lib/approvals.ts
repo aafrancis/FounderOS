@@ -25,8 +25,9 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { clearFailures, readAuthState, recordFailure, throttled, verifyPassword } from '@/lib/auth';
 import { resolveCred } from '@/lib/creds';
+import { generateToken, hashToken, TOKEN_PREFIX } from '@/lib/approval-tokens';
 import { writesEnabled } from '@/lib/gates';
-import type { ActionStatus, ApprovalAction, Grant, GrantMode, LogRow, SwitchState, approvalsRepo } from '@/lib/db-ext/approvals';
+import type { ActionStatus, ApprovalAction, Grant, GrantMode, LogRow, SwitchState, TokenRow, approvalsRepo } from '@/lib/db-ext/approvals';
 
 export const ARM_HASH_KEY = 'GLADOS_ARM_HASH';
 
@@ -54,6 +55,7 @@ export type Deps = {
   armHash?: () => string | undefined;
   loginHash?: () => string | undefined;
   newId?: () => string;
+  newToken?: () => string;
   executors?: Map<string, Executor>;
 };
 
@@ -76,6 +78,11 @@ export const ArmSchema = z.object({
   dailyCapCents: z.number().int().min(0).max(1_000_000_00),
 });
 export type ArmInput = z.input<typeof ArmSchema>;
+
+export const TokenIssueSchema = z.object({
+  name: slug,
+  channels: z.array(slug).min(1).max(20),
+});
 
 const refuse = (status: number, code: string, error: string): Refusal => ({ ok: false, status, code, error });
 
@@ -154,10 +161,14 @@ export function createApprovals(deps: Deps) {
       };
     },
 
-    propose(input: unknown): Result<{ action: ApprovalAction; autoApproved: boolean }> {
+    propose(input: unknown, opts: { trustedProposer?: boolean } = {}): Result<{ action: ApprovalAction; autoApproved: boolean }> {
       const parsed = ProposalSchema.safeParse(input);
       if (!parsed.success) return refuse(400, 'invalid', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
       const p = parsed.data;
+      // "agent:<name>" always means a token holder (set by proposeAs). Nobody else may claim it.
+      if (!opts.trustedProposer && /^agent:/i.test(p.proposedBy)) {
+        return refuse(400, 'reserved_proposer', 'The "agent:" proposer prefix is reserved for agent token holders.');
+      }
       if (killed()) return refuse(423, 'killed', 'The kill switch is on. Nothing can be proposed.');
       const grant = repo.grant(p.channel);
       if (!grant || !grant.armed) {
@@ -247,6 +258,57 @@ export function createApprovals(deps: Deps) {
       const disarmed = repo.disarm(parsed.data, iso());
       repo.log({ at: iso(), event: 'disarmed', actor, channel: parsed.data, detail: disarmed ? '' : 'was not armed' });
       return { ok: true, disarmed };
+    },
+
+    /**
+     * Issue a proposing token for one agent. Needs the arming secret, because a
+     * token is a right. The plain token comes back once; only its hash is kept.
+     * A name is never reused, even after a revoke, so the log stays unambiguous.
+     */
+    issueToken(input: unknown, armSecret: unknown, actor: string, throttleKey: string): Result<{ name: string; channels: string[]; token: string }> {
+      const parsed = TokenIssueSchema.safeParse(input);
+      if (!parsed.success) return refuse(400, 'invalid', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
+      if (killed()) return refuse(423, 'killed', 'The kill switch is on. Lift it first.');
+      const bad = checkArmSecret(armSecret, actor, throttleKey, null);
+      if (bad) return bad;
+      const { name, channels } = parsed.data;
+      if (repo.tokenByName(name)) return refuse(409, 'token_exists', `A token named "${name}" already exists (a revoked name stays taken). Pick another name.`);
+      const token = deps.newToken ? deps.newToken() : generateToken();
+      repo.insertToken({ name, channels, hash: hashToken(token), at: iso() });
+      repo.log({ at: iso(), event: 'token_issued', actor, detail: `${name} may propose on ${channels.join(', ')}` });
+      return { ok: true, name, channels, token };
+    },
+
+    /** Revoking is the safe direction, so it needs no secret. */
+    revokeToken(name: string, actor: string): Result<{ revoked: boolean }> {
+      const parsed = slug.safeParse(name);
+      if (!parsed.success) return refuse(400, 'invalid', 'name: bad name');
+      const revoked = repo.revokeToken(parsed.data, iso());
+      repo.log({ at: iso(), event: 'token_revoked', actor, detail: `${parsed.data}${revoked ? '' : ' (was not active)'}` });
+      return { ok: true, revoked };
+    },
+
+    /** Names, channels and dates. Never a token or a hash. */
+    tokens(): TokenRow[] {
+      return repo.tokens();
+    },
+
+    /** Who holds this bearer token? null for anything unknown, revoked or oddly shaped. Writes nothing. */
+    authenticateToken(presented: string | null): { name: string; channels: string[] } | null {
+      if (!presented || !presented.startsWith(TOKEN_PREFIX)) return null;
+      const t = repo.tokenByHash(hashToken(presented));
+      return t && !t.revokedAt ? { name: t.name, channels: t.channels } : null;
+    },
+
+    /** A proposal from an agent. Its name and channels come from the token, never from the body. */
+    proposeAs(agent: { name: string; channels: string[] }, input: unknown): Result<{ action: ApprovalAction; autoApproved: boolean }> {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) return refuse(400, 'invalid', 'A JSON object body is required.');
+      const body = input as Record<string, unknown>;
+      if (typeof body.channel !== 'string' || !agent.channels.includes(body.channel)) {
+        repo.log({ at: iso(), event: 'propose_refused', actor: `agent:${agent.name}`, channel: null, detail: 'channel not allowed for this token' });
+        return refuse(403, 'token_channel', 'This token may not propose on that channel.');
+      }
+      return this.propose({ ...body, proposedBy: `agent:${agent.name}` }, { trustedProposer: true });
     },
 
     /** The kill switch: disarm everything, expire everything open. No secret needed. */
