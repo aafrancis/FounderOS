@@ -39,6 +39,7 @@ export type ApprovalAction = {
   result: string | null;
 };
 
+export type TokenRow = { name: string; channels: string[]; createdAt: string; revokedAt: string | null };
 export type SwitchState = { killed: boolean; changedAt: string | null; changedBy: string | null };
 export type LogRow = { id: number; at: string; event: string; channel: string | null; actionId: string | null; actor: string; detail: string };
 
@@ -52,6 +53,16 @@ type RawAction = {
   executed_at: string | null; result: string | null;
 };
 
+type RawToken = { name: string; token_hash: string; channels: string; created_at: string; revoked_at: string | null };
+function parseChannels(raw: string): string[] {
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((c): c is string => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+const toToken = (r: RawToken): TokenRow => ({ name: r.name, channels: parseChannels(r.channels), createdAt: r.created_at, revokedAt: r.revoked_at });
 const toGrant = (r: RawGrant): Grant => ({
   channel: r.channel, mode: r.mode as GrantMode, dailyCapCount: r.daily_cap_count, dailyCapCents: r.daily_cap_cents,
   armed: r.armed === 1, armedAt: r.armed_at, updatedAt: r.updated_at,
@@ -99,6 +110,13 @@ CREATE TABLE IF NOT EXISTS approval_log (
   actor TEXT NOT NULL,
   detail TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS approval_tokens (
+  name TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  channels TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
 CREATE TABLE IF NOT EXISTS approval_switch (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   killed INTEGER NOT NULL DEFAULT 0,
@@ -130,6 +148,24 @@ export function approvalsRepo(db: InstanceType<typeof Database>) {
     },
     disarmAll(now: string): number {
       return db.prepare('UPDATE approval_grants SET armed = 0, armed_at = NULL, updated_at = ? WHERE armed = 1').run(now).changes;
+    },
+
+    insertToken(t: { name: string; hash: string; channels: string[]; at: string }): void {
+      db.prepare('INSERT INTO approval_tokens (name, token_hash, channels, created_at) VALUES (?, ?, ?, ?)').run(t.name, t.hash, JSON.stringify(t.channels), t.at);
+    },
+    tokenByName(name: string): TokenRow | null {
+      const r = db.prepare('SELECT * FROM approval_tokens WHERE name = ?').get(name) as RawToken | undefined;
+      return r ? toToken(r) : null;
+    },
+    tokenByHash(hash: string): TokenRow | null {
+      const r = db.prepare('SELECT * FROM approval_tokens WHERE token_hash = ?').get(hash) as RawToken | undefined;
+      return r ? toToken(r) : null;
+    },
+    tokens(): TokenRow[] {
+      return (db.prepare('SELECT * FROM approval_tokens ORDER BY created_at, name').all() as RawToken[]).map(toToken);
+    },
+    revokeToken(name: string, now: string): boolean {
+      return db.prepare('UPDATE approval_tokens SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL').run(now, name).changes > 0;
     },
 
     insertAction(a: Omit<ApprovalAction, 'decidedAt' | 'decidedBy' | 'executedAt' | 'result'>): ApprovalAction {

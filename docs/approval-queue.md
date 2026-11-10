@@ -54,3 +54,15 @@ only). An approved action counts even if it then fails, so a retry loop cannot d
 - Wild Horse loops posting into this queue and obeying the kill switch (a pause flag counts only
   once something on the host obeys it).
 - Per-agent tokens for proposing. Today a proposal needs the operator session cookie.
+
+## Agent tokens
+
+An agent (a Wild Horse loop, a script) files proposals with a bearer token, because it cannot hold the operator's session.
+
+- Issue: `POST /api/approvals/tokens` `{ "action": "issue", "name": "wild-horse", "channels": ["zernio-publish"], "armSecret": "..." }`. Needs the arming secret. The token (`apt_...`) is shown once; only its SHA-256 hash is stored. A name is never reused, even after a revoke.
+- Use: `POST /api/approvals/propose` with `Authorization: Bearer apt_...` and the same body as `POST /api/approvals`. The proposer is recorded as `agent:<name>` whatever the body says, and only the token's own channels are accepted.
+- A token can only propose. It cannot approve, reject, run, arm, disarm, kill or issue.
+- Revoke: `{ "action": "revoke", "name": "..." }` (operator session, no secret needed). `GET /api/approvals/tokens` lists names, channels and dates, never a token or hash.
+- The propose path is open to the middleware (`TOKEN_PATHS`), so the route is the gate: no valid token is a 401 and nothing is read from the body or written to the database.
+- On an `auto` channel a token proposal is approved and run at once inside the daily cap, exactly like an operator one. Keep channels on `ask` until the first one has been watched for two weeks, and give each token only the channels it needs.
+- The proposer states the cost. The cap trusts it, so an executor must compute the real cost itself before it spends.
