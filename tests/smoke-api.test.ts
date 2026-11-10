@@ -28,6 +28,7 @@ const ROUTES: RouteEntry[] = [
   { route: 'trading', load: () => import('@/app/api/trading/route'), url: 'http://localhost/api/trading' },
   { route: 'trading/limits', load: () => import('@/app/api/trading/limits/route'), url: 'http://localhost/api/trading/limits' },
   { route: 'usage', load: () => import('@/app/api/usage/route'), url: 'http://localhost/api/usage' },
+  { route: 'approvals', load: () => import('@/app/api/approvals/route'), url: 'http://localhost/api/approvals' },
   { route: 'clients', load: () => import('@/app/api/clients/route'), url: 'http://localhost/api/clients' },
   { route: 'lead-magnets', load: () => import('@/app/api/lead-magnets/route'), url: 'http://localhost/api/lead-magnets' },
   { route: 'chats', load: () => import('@/app/api/chats/route'), url: 'http://localhost/api/chats' },
