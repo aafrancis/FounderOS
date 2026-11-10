@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
-import { clientKey } from '@/lib/auth';
 import { getApprovals, refusalResponse } from '@/lib/approvals-server';
+
+// One lockout for the whole instance. It must not key on x-forwarded-for: the client sets that
+// header, so a caller could rotate it per request and never hit the limit (found in review).
+const ARM_THROTTLE_KEY = 'arm:global';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -18,7 +21,7 @@ export async function POST(req: Request) {
     return r.ok ? NextResponse.json(r) : refusalResponse(r);
   }
   if (body?.action === 'reset') {
-    const r = approvals.reset(body.armSecret, 'operator', `arm:${clientKey(req)}`);
+    const r = approvals.reset(body.armSecret, 'operator', ARM_THROTTLE_KEY);
     return r.ok ? NextResponse.json(r) : refusalResponse(r);
   }
   return NextResponse.json({ error: 'action must be "kill" or "reset"', code: 'invalid' }, { status: 400 });

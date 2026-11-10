@@ -60,6 +60,20 @@ describe('GET /api/approvals', () => {
 });
 
 describe('arming over HTTP', () => {
+  test('the arming lockout cannot be dodged by changing x-forwarded-for', async () => {
+    withArm();
+    const { POST } = await import('@/app/api/approvals/grants/route');
+    const arm = (secret: string, ip: string) =>
+      POST(new Request('http://localhost/api/approvals/grants', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+        body: JSON.stringify({ action: 'arm', channel: 'r-xff', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0, armSecret: secret }),
+      }));
+    for (let i = 0; i < 8; i++) expect((await arm('wrong', `10.0.0.${i}`)).status).toBe(401);
+    // A fresh address and the RIGHT secret is still refused: the lockout is instance-wide.
+    expect((await arm(ARM_PHRASE, '10.9.9.9')).status).toBe(429);
+  });
+
   test('no arming secret on the instance: 503 and nothing is armed', async () => {
     envLocal('');
     const res = await armChannel('r-none');
