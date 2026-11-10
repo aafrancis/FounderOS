@@ -12,3 +12,9 @@ tests/creds.test.ts:generic-api-key:19
 tests/lab-setup-keys.test.ts:generic-api-key:53
 tests/lab-setup-keys.test.ts:generic-api-key:54
 tests/lab-v2-sheet-models.test.ts:generic-api-key:148
+
+# Approval queue tests (SH-0271, 2026-11-10): `const SECRET = 'arming-...'` is a fake arming secret used to build a test hash. Not a credential.
+b77a411321b0d44a51cc827ffb37341fc354854f:tests/approvals-routes.test.ts:generic-api-key:15
+tests/approvals-routes.test.ts:generic-api-key:15
+b77a411321b0d44a51cc827ffb37341fc354854f:tests/approvals.test.ts:generic-api-key:12
+tests/approvals.test.ts:generic-api-key:12
