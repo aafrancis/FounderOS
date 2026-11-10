@@ -7,6 +7,7 @@ import { tradingRepo } from '@/lib/db-ext/trading';
 import { clientConfirmationsRepo, clientWorkRepo } from '@/lib/db-ext/clients';
 import { leadMagnetsRepo } from '@/lib/db-ext/lead-magnets';
 import { usageReadingsRepo } from '@/lib/db-ext/usage';
+import { APPROVALS_DDL, approvalsRepo } from '@/lib/db-ext/approvals';
 import { commsDigestsRepo } from '@/lib/db-ext/comms-digest';
 import { callRecordingsRepo } from '@/lib/db-ext/recordings';
 import { cronRunsRepo, deliverableDecisionsRepo } from '@/lib/db-ext/agent-ops';
@@ -521,6 +522,7 @@ export function migrateFounderOs(db: InstanceType<typeof Database>): void {
     }
   }
   db.exec(FO_DDL);
+  db.exec(APPROVALS_DDL);
   const cols = (db.prepare('PRAGMA table_info(cron_runs)').all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes('trigger')) db.exec("ALTER TABLE cron_runs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'schedule'");
 }
@@ -2309,6 +2311,8 @@ export function openDb(path: string) {
     callRecordings: callRecordingsRepo(db),
     deliverableDecisions: deliverableDecisionsRepo(db),
     cronRuns: cronRunsRepo(db),
+    /** Approval queue, per-channel grants, kill switch and audit log (lib/db-ext/approvals.ts). */
+    approvals: approvalsRepo(db),
     /** The live journal mode, read from SQLite (S10 FR-17), e.g. "wal". */
     journalMode: (): string => String(db.pragma('journal_mode', { simple: true }) ?? ''),
     close: () => db.close(),
