@@ -9,38 +9,7 @@
  * Grouped by what the operator is doing, not by how it is built:
  * command (untitled), Revenue, Growth, Workforce, Knowledge, System.
  */
-import {
-  Home,
-  MessageSquare,
-  MessagesSquare,
-  Share2,
-  Users,
-  ListChecks,
-  Sparkles,
-  Network,
-  Brain,
-  Wallet,
-  Filter,
-  Handshake,
-  Workflow,
-  Map,
-  Plug,
-  BarChart3,
-  Wrench,
-  Waypoints,
-  GitCompareArrows,
-  Crosshair,
-  Wand2,
-  Clapperboard,
-  FolderTree,
-  MonitorSmartphone,
-  FlaskConical,
-  CandlestickChart,
-  Briefcase,
-  Magnet,
-  Gauge,
-  type LucideIcon,
-} from 'lucide-react';
+import { Home, MessageSquare, MessagesSquare, Share2, Users, ListChecks, Sparkles, Network, Brain, Wallet, Filter, Handshake, Workflow, Map, Plug, BarChart3, Wrench, Waypoints, GitCompareArrows, Crosshair, Wand2, Clapperboard, FolderTree, MonitorSmartphone, FlaskConical, CandlestickChart, Briefcase, Magnet, Gauge, type LucideIcon, ShieldCheck } from 'lucide-react';
 import { ENGINE_HREF, ENGINE_KEYWORDS, ENGINE_NAME, LEGACY_ENGINE_HREF } from '@/lib/creative-engine/name';
 
 /** The one Wizard glyph (S08 FR-1, SPEC §5 C31): the nav item, the dock
@@ -184,6 +153,7 @@ export function digitViewsFor(off: readonly string[]): string[] {
 
 /** Palette-only views: real pages that are deliberately not in the sidebar. */
 export const NAV_EXTRA: NavItem[] = [
+  { href: '/approvals', label: 'Approvals', icon: ShieldCheck, keywords: 'approve reject queue grants caps kill switch send spend publish permission arming' },
   { href: '/org', label: 'Org Chart', icon: Users, keywords: 'org chart hierarchy departments tree structure leads specialists' },
 ];
 
