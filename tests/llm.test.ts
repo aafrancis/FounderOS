@@ -63,3 +63,40 @@ describe('stub provider chat — deterministic, no network', () => {
     expect(res.toolCalls[0].result).toEqual({ ok: true, value: 42 });
   });
 });
+
+describe('claude-cli provider — subscription only', () => {
+  test('strips every metered key from the child env', async () => {
+    const { claudeCliEnv } = await import('@/lib/connectors/llm');
+    const env = claudeCliEnv({ ANTHROPIC_API_KEY: 'x', AI_GATEWAY_API_KEY: 'y', OPENAI_API_KEY: 'z', ANTHROPIC_AUTH_TOKEN: 'w', PATH: '/bin' });
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.AI_GATEWAY_API_KEY).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.PATH).toBe('/bin');
+  });
+
+  test('status reports connected without any gateway key', async () => {
+    process.env.LLM_PROVIDER = 'claude-cli';
+    delete process.env[KEY];
+    const status = await llmStatus();
+    expect(status.state).toBe('connected');
+    expect(status.detail).toContain('no metered key');
+  });
+
+  test('renders the transcript as one prompt, dropping tool turns', async () => {
+    const { renderClaudeCliPrompt } = await import('@/lib/connectors/llm');
+    const prompt = renderClaudeCliPrompt({ messages: [{ role: 'user', content: 'hi' }, { role: 'tool', content: 'secret-tool-output' }] });
+    expect(prompt).toContain('User: hi');
+    expect(prompt).not.toContain('secret-tool-output');
+  });
+
+  test('a missing binary fails honestly instead of faking a reply', async () => {
+    process.env.LLM_PROVIDER = 'claude-cli';
+    process.env.CLAUDE_CLI_BIN = '/nonexistent/claude';
+    try {
+      await expect(chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(/not runnable/);
+    } finally {
+      delete process.env.CLAUDE_CLI_BIN;
+    }
+  });
+});

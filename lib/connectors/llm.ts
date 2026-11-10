@@ -7,6 +7,7 @@
  * whole agent-chat stack is testable offline. Status stays honest: no
  * AI_GATEWAY_API_KEY ⇒ not_configured, never a fake "connected".
  */
+import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import { CRED_FILES, resolveCred } from '@/lib/creds';
 import type { ConnectorStatus } from '@/lib/connectors/types';
@@ -117,9 +118,73 @@ export function createGatewayProvider(model: string = DEFAULT_MODEL): LlmProvide
   };
 }
 
+/**
+ * Subscription-backed provider (LLM_PROVIDER=claude-cli): shells out to the
+ * Claude Code CLI, which bills the operator's Claude plan, never a metered key.
+ * Metered keys are stripped from the child env so the CLI cannot fall back to
+ * pay-per-token billing. Text only: the CLI cannot call this app's in-process
+ * tools, so `tools` are ignored and `toolCalls` is always empty (honest, not faked).
+ */
+const METERED_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'AI_GATEWAY_API_KEY', 'OPENAI_API_KEY'];
+
+/** Render the transcript as one prompt; the CLI takes a single user turn on stdin. */
+export function renderClaudeCliPrompt(req: LlmChatRequest): string {
+  const label = { assistant: 'Assistant', system: 'System', user: 'User', tool: 'Tool' } as const;
+  const lines = req.messages.filter((m) => m.role !== 'tool').map((m) => `${label[m.role]}: ${m.content}`);
+  return `${lines.join('\n\n')}\n\nAssistant:`;
+}
+
+export function claudeCliEnv(base: Record<string, string | undefined> = process.env): NodeJS.ProcessEnv {
+  const env = { ...base } as NodeJS.ProcessEnv;
+  for (const k of METERED_KEYS) delete env[k];
+  return env;
+}
+
+export function createClaudeCliProvider(): LlmProvider {
+  return {
+    name: 'claude-cli',
+    chat(req) {
+      const bin = process.env.CLAUDE_CLI_BIN ?? 'claude';
+      const timeoutMs = Number(process.env.CLAUDE_CLI_TIMEOUT_MS ?? 120_000);
+      return new Promise<LlmChatResult>((resolve, reject) => {
+        const args = ['-p', '--output-format', 'json', '--tools', '', '--no-session-persistence', '--strict-mcp-config', '--setting-sources', ''];
+        if (req.system) args.push('--system-prompt', req.system);
+        // Gateway-style ids ("anthropic/…") mean nothing to the CLI; only a bare alias is passed through.
+        const model = req.model && !req.model.includes('/') ? req.model : process.env.CLAUDE_CLI_MODEL;
+        if (model) args.push('--model', model);
+        const child = spawn(bin, args, { env: claudeCliEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(new Error(`claude CLI timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        child.stdout.on('data', (d) => (out += d));
+        child.stderr.on('data', (d) => (err += d));
+        child.on('error', (e) => {
+          clearTimeout(timer);
+          reject(new Error(`claude CLI not runnable (${e.message}). Install Claude Code and log in with your plan.`));
+        });
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          try {
+            const parsed = JSON.parse(out) as { result?: string; is_error?: boolean };
+            if (code !== 0 || parsed.is_error) throw new Error(parsed.result ?? `exit ${code}`);
+            resolve({ text: (parsed.result ?? '').trim(), toolCalls: [] });
+          } catch (e) {
+            reject(new Error(`claude CLI failed: ${(e as Error).message}${err ? ` · ${err.slice(0, 200)}` : ''}`));
+          }
+        });
+        child.stdin.end(renderClaudeCliPrompt(req));
+      });
+    },
+  };
+}
+
 export function getLlmProvider(): LlmProvider {
   const name = process.env.LLM_PROVIDER ?? 'gateway';
   if (name === 'stub') return stubLlmProvider;
+  if (name === 'claude-cli') return createClaudeCliProvider();
   return createGatewayProvider();
 }
 
@@ -131,6 +196,9 @@ export async function llmStatus(): Promise<ConnectorStatus> {
   const base = { id: 'llm', name: 'LLM (Gateway)', kind: 'orchestration' } as const;
   if (process.env.LLM_PROVIDER === 'stub') {
     return { ...base, state: 'connected', detail: 'stub provider active (tests)' };
+  }
+  if (process.env.LLM_PROVIDER === 'claude-cli') {
+    return { ...base, state: 'connected', detail: 'Claude Code CLI on your plan (no metered key); text only, no tool calls' };
   }
   const key = resolveGatewayKey();
   if (!key) {
