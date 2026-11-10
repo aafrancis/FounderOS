@@ -9,8 +9,8 @@ import { createApprovals, dayStart, type Executor } from '@/lib/approvals';
  * once-only execution, the kill switch, and the arming secret.
  */
 
-const SECRET = 'arming-secret-123';
-const LOGIN = 'login-password-456';
+const ARM_PHRASE = 'open the gate for me';
+const LOGIN_PHRASE = 'a different phrase entirely';
 let clock = new Date('2026-11-10T10:00:00Z');
 
 function setup(over: { writesOn?: boolean; armHash?: string | undefined; executors?: Map<string, Executor> } = {}) {
@@ -21,15 +21,15 @@ function setup(over: { writesOn?: boolean; armHash?: string | undefined; executo
     repo,
     now: () => clock,
     writesOn: () => over.writesOn ?? true,
-    armHash: () => ('armHash' in over ? over.armHash : hashPassword(SECRET)),
-    loginHash: () => hashPassword(LOGIN),
+    armHash: () => ('armHash' in over ? over.armHash : hashPassword(ARM_PHRASE)),
+    loginHash: () => hashPassword(LOGIN_PHRASE),
     executors,
   });
   return { db, repo, approvals, executors };
 }
 
 const arm = (a: ReturnType<typeof setup>['approvals'], over: Record<string, unknown> = {}) =>
-  a.arm({ channel: 'email', mode: 'ask', dailyCapCount: 2, dailyCapCents: 500, ...over }, SECRET, 'operator', 'k1');
+  a.arm({ channel: 'email', mode: 'ask', dailyCapCount: 2, dailyCapCents: 500, ...over }, ARM_PHRASE, 'operator', 'k1');
 const propose = (a: ReturnType<typeof setup>['approvals'], over: Record<string, unknown> = {}) =>
   a.propose({ channel: 'email', kind: 'send-email', title: 'Hello', content: 'Hi there', target: 'a@example.com', costCents: 0, proposedBy: 'agent', ...over });
 
@@ -85,8 +85,8 @@ describe('arming needs the arming secret, not the login password', () => {
   });
 
   test('the login password cannot double as the arming secret', () => {
-    const { approvals, repo } = setup({ armHash: hashPassword(LOGIN) });
-    const r = approvals.arm({ channel: 'email', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, LOGIN, 'operator', 'k3');
+    const { approvals, repo } = setup({ armHash: hashPassword(LOGIN_PHRASE) });
+    const r = approvals.arm({ channel: 'email', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, LOGIN_PHRASE, 'operator', 'k3');
     expect(r).toMatchObject({ ok: false, status: 403, code: 'arm_secret_is_login_password' });
     expect(repo.grants()).toEqual([]);
   });
@@ -94,7 +94,7 @@ describe('arming needs the arming secret, not the login password', () => {
   test('repeated wrong secrets lock the arming door, even for the right secret', () => {
     const { approvals } = setup();
     for (let i = 0; i < 12; i++) approvals.arm({ channel: 'email', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, 'nope', 'operator', 'k4');
-    const r = approvals.arm({ channel: 'email', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, SECRET, 'operator', 'k4');
+    const r = approvals.arm({ channel: 'email', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, ARM_PHRASE, 'operator', 'k4');
     expect(r).toMatchObject({ ok: false, status: 429, code: 'throttled' });
   });
 
@@ -247,7 +247,7 @@ describe('daily caps', () => {
   test('caps are per channel', () => {
     const { approvals } = setup();
     arm(approvals, { mode: 'auto', dailyCapCount: 1 });
-    approvals.arm({ channel: 'sms', mode: 'auto', dailyCapCount: 1, dailyCapCents: 500 }, SECRET, 'operator', 'k1');
+    approvals.arm({ channel: 'sms', mode: 'auto', dailyCapCount: 1, dailyCapCents: 500 }, ARM_PHRASE, 'operator', 'k1');
     expect(propose(approvals).ok).toBe(true);
     expect(propose(approvals, { channel: 'sms', kind: 'send-sms' }).ok).toBe(true);
   });
@@ -259,7 +259,7 @@ describe('the kill switch', () => {
     const { approvals, executors, repo } = setup();
     executors.set('send-email', run);
     arm(approvals);
-    approvals.arm({ channel: 'sms', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, SECRET, 'operator', 'k1');
+    approvals.arm({ channel: 'sms', mode: 'ask', dailyCapCount: 1, dailyCapCents: 0 }, ARM_PHRASE, 'operator', 'k1');
     const queued = (propose(approvals) as { action: { id: string } }).action.id;
     const approved = (propose(approvals) as { action: { id: string } }).action.id;
     approvals.decide(approved, 'approve', 'operator');
@@ -290,7 +290,7 @@ describe('the kill switch', () => {
     approvals.kill('operator');
     expect(approvals.reset('wrong', 'operator', 'k5')).toMatchObject({ ok: false, code: 'bad_arm_secret' });
     expect(approvals.state().killed).toBe(true);
-    expect(approvals.reset(SECRET, 'operator', 'k5').ok).toBe(true);
+    expect(approvals.reset(ARM_PHRASE, 'operator', 'k5').ok).toBe(true);
     expect(approvals.state().killed).toBe(false);
     expect(approvals.state().grants.every((g) => !g.armed)).toBe(true);
     expect(propose(approvals)).toMatchObject({ ok: false, code: 'no_grant' });

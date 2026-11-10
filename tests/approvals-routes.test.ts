@@ -12,7 +12,7 @@ import { clearExecutors, registerExecutor } from '@/lib/approvals';
  * under its control. Channels are unique per test so tests do not share state.
  */
 
-const SECRET = 'arming-secret-123';
+const ARM_PHRASE = 'open the gate for me';
 let dir = '';
 beforeAll(() => {
   const root = mkdtempSync(path.join(tmpdir(), 'glados-approvals-'));
@@ -34,11 +34,11 @@ afterEach(() => {
 });
 
 const envLocal = (lines: string) => writeFileSync(path.join(dir, '.env.local'), lines);
-const withArm = (extra = '') => envLocal(`GLADOS_ARM_HASH=${hashPassword(SECRET)}\n${extra}`);
+const withArm = (extra = '') => envLocal(`GLADOS_ARM_HASH=${hashPassword(ARM_PHRASE)}\n${extra}`);
 const json = (url: string, method: string, body?: unknown) =>
   new Request(`http://localhost${url}`, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
 
-async function armChannel(channel: string, over: Record<string, unknown> = {}, secret: unknown = SECRET) {
+async function armChannel(channel: string, over: Record<string, unknown> = {}, secret: unknown = ARM_PHRASE) {
   const { POST } = await import('@/app/api/approvals/grants/route');
   return POST(json('/api/approvals/grants', 'POST', { action: 'arm', channel, mode: 'ask', dailyCapCount: 5, dailyCapCents: 1000, armSecret: secret, ...over }));
 }
@@ -173,7 +173,7 @@ describe('the kill switch over HTTP', () => {
 
     expect((await POST(json('/api/approvals/kill', 'POST', { action: 'reset', armSecret: 'wrong' }))).status).toBe(401);
     expect((await POST(json('/api/approvals/kill', 'POST', { action: 'reset' }))).status).toBe(401);
-    expect((await POST(json('/api/approvals/kill', 'POST', { action: 'reset', armSecret: SECRET }))).status).toBe(200);
+    expect((await POST(json('/api/approvals/kill', 'POST', { action: 'reset', armSecret: ARM_PHRASE }))).status).toBe(200);
     expect((await file('r-kill')).status).toBe(403); // grant is still off
   });
 
