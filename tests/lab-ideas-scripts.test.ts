@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,7 +36,15 @@ const newWorld = () => {
   return s;
 };
 beforeAll(() => {
+  // The fixtures are dated around NOW, but the agent tools compute their "last 30 days" window from the
+  // real clock. Without this pin the breakouts test fails 30 days after NOW (it began failing 2026-11-09).
+  // Only Date is faked, so timers behave normally.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
   world = newWorld();
+});
+afterAll(() => {
+  vi.useRealTimers();
 });
 afterEach(() => {
   delete process.env.LAB_DRY;
