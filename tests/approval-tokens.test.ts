@@ -123,6 +123,20 @@ describe('proposing with a token', () => {
     expect(action.status).toBe('proposed');
   });
 
+  test('the operator route cannot claim the agent: proposer prefix, in any case or with spaces', async () => {
+    withArm();
+    await armChannel('c-reserved');
+    const { POST } = await import('@/app/api/approvals/route');
+    const post = (proposedBy: string) => POST(json('/api/approvals', 'POST', { ...item('c-reserved'), proposedBy }));
+    for (const by of ['agent:wild-horse', 'Agent:x', '  agent:y']) {
+      const res = await post(by);
+      expect(res.status, by).toBe(400);
+      expect((await res.json()).code).toBe('reserved_proposer');
+    }
+    expect((await post('operator')).status).toBe(201);
+    expect((await post('agentless')).status).toBe(201); // only the exact prefix is reserved
+  });
+
   test('a channel the token was not issued for is 403 and nothing is queued', async () => {
     withArm();
     await armChannel('c-allowed');

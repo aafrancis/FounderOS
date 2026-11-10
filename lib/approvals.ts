@@ -161,10 +161,14 @@ export function createApprovals(deps: Deps) {
       };
     },
 
-    propose(input: unknown): Result<{ action: ApprovalAction; autoApproved: boolean }> {
+    propose(input: unknown, opts: { trustedProposer?: boolean } = {}): Result<{ action: ApprovalAction; autoApproved: boolean }> {
       const parsed = ProposalSchema.safeParse(input);
       if (!parsed.success) return refuse(400, 'invalid', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
       const p = parsed.data;
+      // "agent:<name>" always means a token holder (set by proposeAs). Nobody else may claim it.
+      if (!opts.trustedProposer && /^agent:/i.test(p.proposedBy)) {
+        return refuse(400, 'reserved_proposer', 'The "agent:" proposer prefix is reserved for agent token holders.');
+      }
       if (killed()) return refuse(423, 'killed', 'The kill switch is on. Nothing can be proposed.');
       const grant = repo.grant(p.channel);
       if (!grant || !grant.armed) {
@@ -304,7 +308,7 @@ export function createApprovals(deps: Deps) {
         repo.log({ at: iso(), event: 'propose_refused', actor: `agent:${agent.name}`, channel: null, detail: 'channel not allowed for this token' });
         return refuse(403, 'token_channel', 'This token may not propose on that channel.');
       }
-      return this.propose({ ...body, proposedBy: `agent:${agent.name}` });
+      return this.propose({ ...body, proposedBy: `agent:${agent.name}` }, { trustedProposer: true });
     },
 
     /** The kill switch: disarm everything, expire everything open. No secret needed. */

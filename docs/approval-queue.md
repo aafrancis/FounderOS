@@ -53,7 +53,6 @@ only). An approved action counts even if it then fails, so a retry loop cannot d
 - The phone path. Approving from the iPhone app needs the Ops app to call these routes.
 - Wild Horse loops posting into this queue and obeying the kill switch (a pause flag counts only
   once something on the host obeys it).
-- Per-agent tokens for proposing. Today a proposal needs the operator session cookie.
 
 ## Agent tokens
 
@@ -61,6 +60,7 @@ An agent (a Wild Horse loop, a script) files proposals with a bearer token, beca
 
 - Issue: `POST /api/approvals/tokens` `{ "action": "issue", "name": "wild-horse", "channels": ["zernio-publish"], "armSecret": "..." }`. Needs the arming secret. The token (`apt_...`) is shown once; only its SHA-256 hash is stored. A name is never reused, even after a revoke.
 - Use: `POST /api/approvals/propose` with `Authorization: Bearer apt_...` and the same body as `POST /api/approvals`. The proposer is recorded as `agent:<name>` whatever the body says, and only the token's own channels are accepted.
+- `agent:<name>` always identifies a token holder: the operator route refuses that prefix (400 `reserved_proposer`).
 - A token can only propose. It cannot approve, reject, run, arm, disarm, kill or issue.
 - Revoke: `{ "action": "revoke", "name": "..." }` (operator session, no secret needed). `GET /api/approvals/tokens` lists names, channels and dates, never a token or hash.
 - The propose path is open to the middleware (`TOKEN_PATHS`), so the route is the gate: no valid token is a 401 and nothing is read from the body or written to the database.
