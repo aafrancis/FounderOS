@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import { CRED_FILES, resolveCred } from '@/lib/creds';
 import type { ConnectorStatus } from '@/lib/connectors/types';
+import { claudeCliInstalled, createClaudeCliProvider } from '@/lib/connectors/llm-claude-cli';
 
 export type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
 export type LlmMessage = { role: LlmRole; content: string };
@@ -120,6 +121,7 @@ export function createGatewayProvider(model: string = DEFAULT_MODEL): LlmProvide
 export function getLlmProvider(): LlmProvider {
   const name = process.env.LLM_PROVIDER ?? 'gateway';
   if (name === 'stub') return stubLlmProvider;
+  if (name === 'claude-cli') return createClaudeCliProvider({ model: DEFAULT_MODEL });
   return createGatewayProvider();
 }
 
@@ -131,6 +133,12 @@ export async function llmStatus(): Promise<ConnectorStatus> {
   const base = { id: 'llm', name: 'LLM (Gateway)', kind: 'orchestration' } as const;
   if (process.env.LLM_PROVIDER === 'stub') {
     return { ...base, state: 'connected', detail: 'stub provider active (tests)' };
+  }
+  if (process.env.LLM_PROVIDER === 'claude-cli') {
+    const cli = { ...base, name: 'LLM (Claude subscription)' } as const;
+    return claudeCliInstalled()
+      ? { ...cli, state: 'connected', detail: 'claude CLI on the Claude subscription, text only (no tool calls), no metered API key' }
+      : { ...cli, state: 'not_configured', detail: 'The claude CLI did not start. Install it and sign in, or set CLAUDE_BIN.' };
   }
   const key = resolveGatewayKey();
   if (!key) {
