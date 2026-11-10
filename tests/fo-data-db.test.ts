@@ -53,7 +53,7 @@ describe('tables and migration', () => {
     opened.push(db);
     const probe = new Database(file, { readonly: true });
     const names = (probe.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name);
-    expect(FO_TABLES).toHaveLength(15);
+    expect(FO_TABLES).toHaveLength(19);
     for (const t of FO_TABLES) {
       expect(names, t).toContain(t);
       expect((probe.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n, t).toBe(0);
