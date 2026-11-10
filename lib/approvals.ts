@@ -115,7 +115,7 @@ export function createApprovals(deps: Deps) {
       return refuse(503, 'arming_not_configured', 'No arming secret is set (GLADOS_ARM_HASH), so nothing can be armed. Run scripts/hash-arm-secret.mjs and put the result in .env.local.');
     }
     if (throttled(throttleKey)) {
-      return refuse(429, 'throttled', 'Too many wrong arming secrets. Wait a few minutes.');
+      return refuse(429, 'throttled', 'Too many wrong arming secrets. Wait about a minute.');
     }
     if (typeof secret !== 'string' || !verifyPassword(secret, hash)) {
       recordFailure(throttleKey);
@@ -188,7 +188,7 @@ export function createApprovals(deps: Deps) {
       if (!action) return refuse(404, 'unknown', 'No such action.');
       if (action.status !== 'proposed') return refuse(409, 'not_proposed', `This action is already ${action.status}.`);
       if (decision === 'reject') {
-        repo.transition(id, 'proposed', 'rejected', { at: iso(), by: actor });
+        if (!repo.transition(id, 'proposed', 'rejected', { at: iso(), by: actor })) return refuse(409, 'not_proposed', 'This action was decided a moment ago.');
         repo.log({ at: iso(), event: 'rejected', actor, channel: action.channel, actionId: id });
         return { ok: true, action: repo.action(id)! };
       }

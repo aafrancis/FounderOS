@@ -28,6 +28,8 @@ Every step is written to `approval_log`, which is append-only.
 ## Also required to run anything
 
 - `GLADOS_WRITES=1` on the instance (the existing gate). Off: an approved action stays approved.
+  Once writes are on (or the executor exists), run it with `POST /api/approvals/:id` and
+  `{ "decision": "run" }`: same checks, still at most once.
 - An executor registered for the action's `kind`. None exists yet: the first one is the first
   channel the operator names.
 

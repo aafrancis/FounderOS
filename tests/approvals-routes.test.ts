@@ -157,6 +157,39 @@ describe('the queue over HTTP', () => {
     expect(body.execution).toMatchObject({ code: 'writes_off' });
   });
 
+  test('an approved action that could not run can be run later, once, after writes are switched on', async () => {
+    withArm(); // writes off at first
+    const run = vi.fn(async () => ({ sent: true }));
+    registerExecutor('send-email', run);
+    await armChannel('r-later');
+    const { action } = await (await file('r-later')).json();
+    const decide = await import('@/app/api/approvals/[id]/route');
+    const call = (decision: string) => decide.POST(json(`/api/approvals/${action.id}`, 'POST', { decision }), { params: { id: action.id } });
+    expect((await (await call('approve')).json()).action.status).toBe('approved');
+    expect(run).not.toHaveBeenCalled();
+
+    withArm('GLADOS_WRITES=1\n');
+    invalidateModeCache();
+    const ran = await call('run');
+    expect(ran.status).toBe(200);
+    expect((await ran.json()).action.status).toBe('executed');
+    expect(run).toHaveBeenCalledTimes(1);
+    expect((await call('run')).status).toBe(409); // never twice
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  test('"run" refuses a queued action nobody approved, and an unknown id', async () => {
+    withArm('GLADOS_WRITES=1\n');
+    registerExecutor('send-email', async () => 'x');
+    await armChannel('r-norun');
+    const { action } = await (await file('r-norun')).json();
+    const decide = await import('@/app/api/approvals/[id]/route');
+    const ran = await decide.POST(json(`/api/approvals/${action.id}`, 'POST', { decision: 'run' }), { params: { id: action.id } });
+    expect(ran.status).toBe(409);
+    expect((await ran.json()).code).toBe('not_approved');
+    expect((await decide.POST(json('/api/approvals/nope', 'POST', { decision: 'run' }), { params: { id: 'nope' } })).status).toBe(404);
+  });
+
   test('reject, an unknown id and a bad decision', async () => {
     withArm();
     await armChannel('r-reject');
