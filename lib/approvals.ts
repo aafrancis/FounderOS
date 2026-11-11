@@ -26,7 +26,13 @@ import { z } from 'zod';
 import { clearFailures, readAuthState, recordFailure, throttled, verifyPassword } from '@/lib/auth';
 import { resolveCred } from '@/lib/creds';
 import { writesEnabled } from '@/lib/gates';
-import type { ActionStatus, ApprovalAction, Grant, GrantMode, LogRow, SwitchState, approvalsRepo } from '@/lib/db-ext/approvals';
+import { HARD_LINE_KIND, type ActionStatus, type ApprovalAction, type Grant, type GrantMode, type LogRow, type SwitchState, type approvalsRepo } from '@/lib/db-ext/approvals';
+
+export { HARD_LINE_KIND };
+/** Hard-line requests live on their own channel. It needs no armed grant: filing one grants nothing. */
+export const HARD_LINE_CHANNEL = 'hard-line';
+/** How long a hard-line request waits for the founder before it expires. */
+export const HARD_LINE_TTL_MS = 30 * 60 * 1000;
 
 export const ARM_HASH_KEY = 'GLADOS_ARM_HASH';
 
@@ -77,6 +83,26 @@ export const ArmSchema = z.object({
 });
 export type ArmInput = z.input<typeof ArmSchema>;
 
+/**
+ * A hard-line request from an agent (SH-0277): what it wants to do, in one
+ * line; the exact command or action; and how to undo it. Approving needs the
+ * founder's passkey; see lib/passkeys.ts.
+ */
+export const HardLineSchema = z.object({
+  summary: z.string().trim().min(1).max(200),
+  action: z.string().trim().min(1).max(5_000),
+  undo: z.string().trim().min(1).max(5_000),
+  proposedBy: z.string().trim().min(1).max(100),
+});
+export type HardLineInput = z.input<typeof HardLineSchema>;
+
+export const isHardLine = (a: Pick<ApprovalAction, 'kind'>): boolean => a.kind === HARD_LINE_KIND;
+
+/** When a hard-line request stops being approvable. */
+export function hardLineExpiresAt(a: Pick<ApprovalAction, 'proposedAt'>): string {
+  return new Date(Date.parse(a.proposedAt) + HARD_LINE_TTL_MS).toISOString();
+}
+
 const refuse = (status: number, code: string, error: string): Refusal => ({ ok: false, status, code, error });
 
 /** Start of the current UTC day: caps reset there. */
@@ -95,6 +121,12 @@ export function createApprovals(deps: Deps) {
   const registry = deps.executors ?? executors;
 
   const killed = () => repo.switchState().killed;
+
+  /** Expire hard-line requests nobody approved in time. Runs on every read that matters. */
+  function sweep(): void {
+    const n = repo.expireHardLine(new Date(now().getTime() - HARD_LINE_TTL_MS).toISOString(), iso());
+    if (n > 0) repo.log({ at: iso(), event: 'expired', actor: 'clock', channel: HARD_LINE_CHANNEL, detail: `${n} hard-line request(s) expired unapproved` });
+  }
 
   /** Caps for one more action on this channel today, or a refusal. */
   function capRefusal(grant: Grant, costCents: number): Refusal | null {
@@ -142,6 +174,7 @@ export function createApprovals(deps: Deps) {
       recent: ApprovalAction[];
       log: LogRow[];
     } {
+      sweep();
       return {
         killed: killed(),
         switch: repo.switchState(),
@@ -158,6 +191,11 @@ export function createApprovals(deps: Deps) {
       const parsed = ProposalSchema.safeParse(input);
       if (!parsed.success) return refuse(400, 'invalid', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
       const p = parsed.data;
+      // A hard-line action filed through the ordinary door would ride an `auto`
+      // grant straight to approved. It must come through requestHardLine.
+      if (p.kind === HARD_LINE_KIND || p.channel === HARD_LINE_CHANNEL) {
+        return refuse(400, 'hard_line_use_request', 'Hard-line actions are filed with { kind: "hard-line", summary, action, undo } and need the founder\'s passkey to approve.');
+      }
       if (killed()) return refuse(423, 'killed', 'The kill switch is on. Nothing can be proposed.');
       const grant = repo.grant(p.channel);
       if (!grant || !grant.armed) {
@@ -183,9 +221,43 @@ export function createApprovals(deps: Deps) {
       return { ok: true, action: repo.action(id)!, autoApproved };
     },
 
-    decide(id: string, decision: 'approve' | 'reject', actor: string): Result<{ action: ApprovalAction }> {
+    /**
+     * File a hard-line request (SH-0277). Needs no armed grant: it grants
+     * nothing by itself. Only the founder's passkey can approve it
+     * (lib/passkeys.ts), and it expires after HARD_LINE_TTL_MS.
+     */
+    requestHardLine(input: unknown): Result<{ action: ApprovalAction; expiresAt: string }> {
+      const parsed = HardLineSchema.safeParse(input);
+      if (!parsed.success) return refuse(400, 'invalid', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
+      const h = parsed.data;
+      if (killed()) return refuse(423, 'killed', 'The kill switch is on. Nothing can be proposed.');
+      const id = newId();
+      repo.insertAction({
+        id, channel: HARD_LINE_CHANNEL, kind: HARD_LINE_KIND, title: h.summary,
+        content: JSON.stringify({ summary: h.summary, action: h.action, undo: h.undo }),
+        target: h.action.slice(0, 500), costCents: 0, status: 'proposed', proposedBy: h.proposedBy, proposedAt: iso(),
+      });
+      repo.log({ at: iso(), event: 'proposed', actor: h.proposedBy, channel: HARD_LINE_CHANNEL, actionId: id, detail: `hard-line: ${h.summary.slice(0, 200)}` });
+      const action = repo.action(id)!;
+      return { ok: true, action, expiresAt: hardLineExpiresAt(action) };
+    },
+
+    /** One action's status, for an agent polling its request. Sweeps expiry first. */
+    status(id: string): Result<{ action: ApprovalAction; expiresAt: string | null }> {
+      sweep();
       const action = repo.action(id);
       if (!action) return refuse(404, 'unknown', 'No such action.');
+      return { ok: true, action, expiresAt: isHardLine(action) ? hardLineExpiresAt(action) : null };
+    },
+
+    decide(id: string, decision: 'approve' | 'reject', actor: string): Result<{ action: ApprovalAction }> {
+      sweep();
+      const action = repo.action(id);
+      if (!action) return refuse(404, 'unknown', 'No such action.');
+      if (isHardLine(action) && decision === 'approve') {
+        repo.log({ at: iso(), event: 'approve_refused', actor, channel: action.channel, actionId: id, detail: 'hard-line needs a passkey' });
+        return refuse(403, 'passkey_required', 'This is a hard-line action. Only the founder\'s passkey (Face ID) can approve it.');
+      }
       if (action.status !== 'proposed') return refuse(409, 'not_proposed', `This action is already ${action.status}.`);
       if (decision === 'reject') {
         if (!repo.transition(id, 'proposed', 'rejected', { at: iso(), by: actor })) return refuse(409, 'not_proposed', 'This action was decided a moment ago.');
@@ -207,6 +279,7 @@ export function createApprovals(deps: Deps) {
       const action = repo.action(id);
       if (!action) return refuse(404, 'unknown', 'No such action.');
       if (action.status !== 'approved') return refuse(409, 'not_approved', `This action is ${action.status}, not approved.`);
+      if (isHardLine(action)) return refuse(409, 'hard_line_not_run_here', 'A hard-line approval is a yes for the agent that asked; FounderOS runs nothing for it.');
       if (killed()) return refuse(423, 'killed', 'The kill switch is on. Nothing runs.');
       const grant = repo.grant(action.channel);
       if (!grant || !grant.armed) return refuse(403, 'no_grant', `Channel "${action.channel}" is not armed any more.`);

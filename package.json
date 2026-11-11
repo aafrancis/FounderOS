@@ -21,6 +21,8 @@
   "dependencies": {
     "@miosa/sdk": "^3.2.5",
     "@notionhq/client": "^5.22.0",
+    "@simplewebauthn/browser": "14.0.0",
+    "@simplewebauthn/server": "14.1.0",
     "@slack/web-api": "^7.16.0",
     "@types/d3-force": "^3.0.10",
     "ai": "^6.0.208",

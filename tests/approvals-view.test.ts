@@ -65,3 +65,21 @@ describe('the approvals screen is wired in', () => {
     expect(src).toMatch(/form\.reset\(\)/);
   });
 });
+
+describe('hard-line rows (SH-0277)', () => {
+  test('a proposed hard-line action offers Face ID approve and Deny, never the plain Approve or Run', async () => {
+    const { buttonsFor: b } = await import('@/lib/approvals-view');
+    expect(b({ status: 'proposed', kind: 'hard-line' }, false)).toEqual(['passkey', 'reject']);
+    expect(b({ status: 'approved', kind: 'hard-line' }, false)).toEqual([]);
+    expect(b({ status: 'proposed', kind: 'hard-line' }, true)).toEqual([]);
+    expect(b({ status: 'proposed', kind: 'send-email' }, false)).toEqual(['approve', 'reject']);
+  });
+
+  test('hardLineDetail reads summary, action and undo, and ignores other kinds', async () => {
+    const { hardLineDetail } = await import('@/lib/approvals-view');
+    const content = JSON.stringify({ summary: 's', action: 'a', undo: 'u' });
+    expect(hardLineDetail({ kind: 'hard-line', content })).toEqual({ summary: 's', action: 'a', undo: 'u' });
+    expect(hardLineDetail({ kind: 'send-email', content })).toBeNull();
+    expect(hardLineDetail({ kind: 'hard-line', content: 'not json' })).toBeNull();
+  });
+});

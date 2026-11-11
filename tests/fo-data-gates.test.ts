@@ -66,7 +66,7 @@ describe('GLADOS_WRITES and GLADOS_CRON', () => {
 
 describe('push endpoints: the middleware lets exactly these through, the route checks the token', () => {
   test('TOKEN_PATHS are open to the middleware; nothing else new is', () => {
-    expect([...TOKEN_PATHS].sort()).toEqual(['/api/plaud/ingest', '/api/trading/limits', '/api/trading/snapshot', '/api/usage/push']);
+    expect([...TOKEN_PATHS].sort()).toEqual(['/api/approvals/hard-line', '/api/plaud/ingest', '/api/trading/limits', '/api/trading/snapshot', '/api/usage/push']);
     for (const p of TOKEN_PATHS) expect(isOpenPath(p)).toBe(true);
     for (const p of ['/api/trading', '/api/usage', '/api/clients', '/api/cron/tick', '/api/trading/snapshot/x']) expect(isOpenPath(p)).toBe(false);
     const gate = decideGate({ pathname: '/api/clients/confirm', method: 'POST', hostname: 'example.com', origin: null, requestOrigin: 'https://example.com', configured: true, authed: false });

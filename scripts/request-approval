@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+/*
+ * request-approval: ask the founder to approve one hard-line action, and wait.
+ * (SH-0277.) This is what meta's hard-line gate calls before a hard-line step.
+ *
+ *   scripts/request-approval --summary "Force-push meta main" \
+ *     --action "git -C ~/meta push --force origin main" \
+ *     --undo "git -C ~/meta push --force origin <old-sha>:main" [--by agent:meta]
+ *
+ * It files the request with FounderOS, prints its id, then polls until the
+ * founder approves it with their passkey (Face ID), denies it, or it expires.
+ *
+ * Exit codes (only 0 means go ahead):
+ *   0  approved with the founder's passkey
+ *   1  denied
+ *   2  expired, or --timeout passed with no decision
+ *   3  usage error, or FounderOS refused / could not be reached when filing
+ *
+ * Env:
+ *   FOUNDEROS_URL            default http://127.0.0.1:4100
+ *   HARDLINE_REQUEST_TOKEN   bearer token for /api/approvals/hard-line (file and read only;
+ *                            it cannot approve anything)
+ *
+ * No dependencies: plain Node 20+ (global fetch).
+ */
+'use strict';
+
+const USAGE = `usage: request-approval --summary TEXT --action TEXT --undo TEXT [--by NAME] [--timeout SECS] [--interval SECS] [--url URL]
+exit 0 approved, 1 denied, 2 expired or timed out, 3 error`;
+
+function parseArgs(argv) {
+  const out = { by: process.env.USER ? `agent:${process.env.USER}` : 'agent', timeout: 1860, interval: 3, url: process.env.FOUNDEROS_URL || 'http://127.0.0.1:4100' };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '-h' || a === '--help') return { help: true };
+    const m = a.match(/^--(summary|action|undo|by|timeout|interval|url)(?:=(.*))?$/);
+    if (!m) return { error: `unknown argument: ${a}` };
+    const v = m[2] !== undefined ? m[2] : argv[++i];
+    if (v === undefined) return { error: `--${m[1]} needs a value` };
+    out[m[1]] = v;
+  }
+  for (const k of ['summary', 'action', 'undo']) if (!out[k] || !String(out[k]).trim()) return { error: `--${k} is required` };
+  out.timeout = Number(out.timeout);
+  out.interval = Number(out.interval);
+  if (!(out.timeout > 0) || !(out.interval > 0)) return { error: '--timeout and --interval must be positive numbers of seconds' };
+  return out;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function headers() {
+  const h = { 'content-type': 'application/json', accept: 'application/json' };
+  const token = (process.env.HARDLINE_REQUEST_TOKEN || '').trim();
+  if (token) h.authorization = `Bearer ${token}`;
+  return h;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(USAGE);
+    return 0;
+  }
+  if (args.error) {
+    console.error(`request-approval: ${args.error}\n${USAGE}`);
+    return 3;
+  }
+  const base = String(args.url).replace(/\/+$/, '');
+  const endpoint = `${base}/api/approvals/hard-line`;
+
+  let filed;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ summary: args.summary, action: args.action, undo: args.undo, proposedBy: args.by }),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.status !== 201 || !body || typeof body.id !== 'string') {
+      console.error(`request-approval: FounderOS refused the request (${res.status}): ${(body && body.error) || 'no detail'}`);
+      return 3;
+    }
+    filed = body;
+  } catch (e) {
+    console.error(`request-approval: could not reach FounderOS at ${base}: ${e && e.message ? e.message : e}`);
+    return 3;
+  }
+
+  console.log(`requested ${filed.id}`);
+  console.error(`request-approval: waiting for the founder to approve with their passkey on ${base}/approvals (expires ${filed.expiresAt})`);
+
+  const deadline = Date.now() + args.timeout * 1000;
+  let lastError = '';
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${endpoint}?id=${encodeURIComponent(filed.id)}`, { headers: headers() });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body && typeof body.status === 'string') {
+        lastError = '';
+        if (body.status === 'approved') {
+          console.log(`approved ${filed.id} by ${body.decidedBy || 'passkey'}`);
+          return 0;
+        }
+        if (body.status === 'rejected') {
+          console.log(`denied ${filed.id}`);
+          return 1;
+        }
+        if (body.status === 'expired') {
+          console.log(`expired ${filed.id}`);
+          return 2;
+        }
+      } else {
+        lastError = `status ${res.status}${body && body.error ? `: ${body.error}` : ''}`;
+      }
+    } catch (e) {
+      lastError = e && e.message ? e.message : String(e);
+    }
+    if (lastError) console.error(`request-approval: poll failed (${lastError}); retrying`);
+    await sleep(args.interval * 1000);
+  }
+  console.log(`timeout ${filed.id}`);
+  return 2;
+}
+
+main().then(
+  (code) => process.exit(code),
+  (e) => {
+    console.error(`request-approval: ${e && e.stack ? e.stack : e}`);
+    process.exit(3);
+  },
+);

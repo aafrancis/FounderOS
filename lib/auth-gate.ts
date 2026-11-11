@@ -25,7 +25,11 @@ export const OPEN_PATHS = ['/login', '/api/auth/login', '/api/auth/check'] as co
  *  fails closed: no valid token means the same session/loopback rule as here.
  *  /api/trading/limits: GET with the token (the Markets agent reads its limits);
  *  PATCH refuses the token and takes the operator session only. */
-export const TOKEN_PATHS = ['/api/trading/snapshot', '/api/trading/limits', '/api/usage/push', '/api/plaud/ingest'] as const;
+export const TOKEN_PATHS = [
+  '/api/trading/snapshot', '/api/trading/limits', '/api/usage/push', '/api/plaud/ingest',
+  // SH-0277: agents file and poll hard-line requests. File and read only; approving needs the founder's passkey.
+  '/api/approvals/hard-line',
+] as const;
 
 export function isOpenPath(pathname: string): boolean {
   return (

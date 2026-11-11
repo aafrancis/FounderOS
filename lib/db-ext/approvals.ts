@@ -9,6 +9,12 @@
  */
 import type Database from 'better-sqlite3';
 
+/**
+ * Actions of this kind need the founder's passkey (Face ID) to be approved
+ * (SH-0277). Storage enforces it: see `transition` and `approveHardLineWithPasskey`.
+ */
+export const HARD_LINE_KIND = 'hard-line';
+
 export type GrantMode = 'ask' | 'auto';
 export type ActionStatus = 'proposed' | 'approved' | 'rejected' | 'executing' | 'executed' | 'failed' | 'expired';
 
@@ -165,10 +171,36 @@ export function approvalsRepo(db: InstanceType<typeof Database>) {
                decided_by = CASE WHEN @decided = 1 THEN @by ELSE decided_by END,
                executed_at = CASE WHEN @executed = 1 THEN @at ELSE executed_at END,
                result = COALESCE(@result, result)
-             WHERE id = @id AND status = @from`,
+             WHERE id = @id AND status = @from
+               AND NOT (@to = 'approved' AND kind = '${HARD_LINE_KIND}')`,
           )
           .run({ id, from, to, at: f.at, by: f.by ?? null, result: f.result ?? null, decided: decided ? 1 : 0, executed: executed ? 1 : 0 }).changes === 1
       );
+    },
+    /**
+     * The ONLY way a hard-line action becomes approved (SH-0277). `transition`
+     * refuses to set approved on a hard-line row, so every other path fails at
+     * the storage layer too. lib/passkeys.ts calls this after it has verified a
+     * fresh passkey assertion bound to this exact action id.
+     */
+    approveHardLineWithPasskey(id: string, at: string, by: string): boolean {
+      return (
+        db
+          .prepare(
+            `UPDATE approval_actions SET status = 'approved', decided_at = ?, decided_by = ?
+             WHERE id = ? AND status = 'proposed' AND kind = '${HARD_LINE_KIND}'`,
+          )
+          .run(at, by, id).changes === 1
+      );
+    },
+    /** Hard-line requests filed before `beforeIso` and still undecided become expired. */
+    expireHardLine(beforeIso: string, at: string): number {
+      return db
+        .prepare(
+          `UPDATE approval_actions SET status = 'expired', decided_at = ?, decided_by = 'clock', result = 'nobody approved it in time'
+           WHERE kind = '${HARD_LINE_KIND}' AND status = 'proposed' AND proposed_at < ?`,
+        )
+        .run(at, beforeIso).changes;
     },
     /** Every not-yet-run action becomes expired (the kill switch). */
     expireOpen(now: string, by: string): number {
