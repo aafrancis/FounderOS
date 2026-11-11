@@ -4,6 +4,8 @@
  *   POST /api/trading/snapshot   TRADING_PUSH_TOKEN   (the Markets agent)
  *   POST /api/usage/push         USAGE_PUSH_TOKEN     (another machine's usage reader)
  *   POST /api/plaud/ingest       PLAUD_INGEST_TOKEN   (Plaud webhook / relay)
+ *   /api/approvals/hard-line     HARDLINE_REQUEST_TOKEN (agents file and poll hard-line
+ *                                requests; approving needs the founder's passkey, SH-0277)
  *
  * A pushing machine cannot hold the operator's session cookie, so the
  * middleware lets exactly these paths through (lib/auth-gate.ts TOKEN_PATHS)
@@ -21,7 +23,7 @@ import { SESSION_COOKIE, hostnameOf, isLoopbackHost } from '@/lib/auth-gate';
 import { cookieFromHeader, readAuthState, sameSecret } from '@/lib/auth';
 import { resolveCred } from '@/lib/creds';
 
-export type PushTokenKey = 'TRADING_PUSH_TOKEN' | 'USAGE_PUSH_TOKEN' | 'PLAUD_INGEST_TOKEN';
+export type PushTokenKey = 'TRADING_PUSH_TOKEN' | 'USAGE_PUSH_TOKEN' | 'PLAUD_INGEST_TOKEN' | 'HARDLINE_REQUEST_TOKEN';
 
 export type PushAuth = { ok: true; via: 'token' | 'session' } | { ok: false; status: 401 | 403; error: string };
 

@@ -11,6 +11,7 @@ import { commsDigestsRepo } from '@/lib/db-ext/comms-digest';
 import { callRecordingsRepo } from '@/lib/db-ext/recordings';
 import { cronRunsRepo, deliverableDecisionsRepo } from '@/lib/db-ext/agent-ops';
 import { APPROVALS_DDL, approvalsRepo } from '@/lib/db-ext/approvals';
+import { PASSKEYS_DDL, passkeysRepo } from '@/lib/db-ext/passkeys';
 import {
   AgentCronSchema,
   AgentMessageSchema,
@@ -498,6 +499,7 @@ CREATE TABLE IF NOT EXISTS cron_runs (
 );
 CREATE INDEX IF NOT EXISTS cron_runs_by_cron ON cron_runs (cron_id, started_at);
 ${APPROVALS_DDL}
+${PASSKEYS_DDL}
 `;
 
 /** Every table FO_DDL creates (tests assert each exists and starts empty). */
@@ -506,6 +508,7 @@ export const FO_TABLES = [
   'client_confirmations', 'client_work', 'lead_magnets', 'usage_readings', 'comms_digests', 'digest_reads',
   'call_recordings', 'deliverable_decisions', 'cron_runs',
   'approval_grants', 'approval_actions', 'approval_log', 'approval_switch',
+  'passkey_credentials', 'passkey_challenges',
 ] as const;
 
 /**
@@ -2314,6 +2317,8 @@ export function openDb(path: string) {
     cronRuns: cronRunsRepo(db),
     /** The approval queue (lib/approvals.ts, SH-0271). */
     approvals: approvalsRepo(db),
+    /** The founder's passkeys and their single-use challenges (lib/passkeys.ts, SH-0277). */
+    passkeys: passkeysRepo(db),
     /** The live journal mode, read from SQLite (S10 FR-17), e.g. "wal". */
     journalMode: (): string => String(db.pragma('journal_mode', { simple: true }) ?? ''),
     close: () => db.close(),

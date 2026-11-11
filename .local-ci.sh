@@ -11,6 +11,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+# A worktree that adds a dependency has its own node_modules. Use it, or `next` from the main
+# checkout renders with the worktree's React and the build dies with two React copies.
+HERE="$(git rev-parse --show-toplevel)"
+if [ -x "$HERE/node_modules/.bin/tsc" ]; then ROOT="$HERE"; fi
 BIN="$ROOT/node_modules/.bin"
 [ -x "$BIN/tsc" ] || { echo "local-ci: dependencies are not installed in $ROOT (run npm ci there)" >&2; exit 1; }
 

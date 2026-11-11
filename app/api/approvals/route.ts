@@ -17,6 +17,16 @@ export async function GET() {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const approvals = getApprovals();
+  // Hard-line (SH-0277): { kind: "hard-line", summary, action, undo, proposedBy }.
+  // Waits for the founder's passkey; never auto-approved.
+  if (body && typeof body === 'object' && (body as { kind?: unknown }).kind === 'hard-line') {
+    const { kind: _k, ...rest } = body as Record<string, unknown>;
+    void _k;
+    const filed = approvals.requestHardLine(rest);
+    return filed.ok
+      ? NextResponse.json({ ok: true, action: filed.action, expiresAt: filed.expiresAt, autoApproved: false }, { status: 201 })
+      : refusalResponse(filed);
+  }
   const filed = approvals.propose(body);
   if (!filed.ok) return refusalResponse(filed);
   if (!filed.autoApproved) return NextResponse.json({ ok: true, action: filed.action, autoApproved: false }, { status: 201 });
