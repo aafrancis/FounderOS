@@ -32,7 +32,7 @@ Agents keep admin. This is the first working slice, in FounderOS.
 | `decide(approve)` on hard-line refuses with `passkey_required` | `lib/approvals.ts` | `no other door` |
 | A hard-line kind through the ordinary `propose` refuses (an `auto` grant cannot approve it) | `lib/approvals.ts` | `no other door` |
 | Storage refuses `transition(... -> approved)` on a hard-line row; only `approveHardLineWithPasskey` can set it | `lib/db-ext/approvals.ts` | `no other door` |
-| Registering a passkey needs the arming secret (not the login password) | `registrationOptions` | `no other door` |
+| Enrolling a passkey goes through the arming check (GLADOS_ARM_HASH, separate from sign-in) | `registrationOptions` | `no other door` |
 | Non-hard-line approvals behave exactly as before | `lib/approvals.ts` | `non-hard-line approvals are unaffected` |
 
 Tests: `tests/passkey-approvals.test.ts` (a real P-256 software authenticator,

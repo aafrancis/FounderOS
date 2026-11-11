@@ -18,3 +18,6 @@ b77a411321b0d44a51cc827ffb37341fc354854f:tests/approvals-routes.test.ts:generic-
 tests/approvals-routes.test.ts:generic-api-key:15
 b77a411321b0d44a51cc827ffb37341fc354854f:tests/approvals.test.ts:generic-api-key:12
 tests/approvals.test.ts:generic-api-key:12
+
+# Passkey approvals doc (SH-0277, 2026-11-11): prose "(not the login p...word) |" in a table row matched the labelled-password rule. No credential; the line is reworded in the next commit.
+4daa6881c03550eced8bf91909ae2d0dd50c074e:docs/passkey-approvals.md:propersites-labelled-password:35
