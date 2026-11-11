@@ -42,6 +42,7 @@ export function subscriptionEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.P
 export function cliModel(model: string | undefined): string | undefined {
   if (!model) return undefined;
   const id = model.replace(/^anthropic\//, '');
+  if (id.includes('/')) return undefined; // another provider's gateway id (openai/...): the CLI cannot run it, use its default
   if (/opus/i.test(id)) return 'opus';
   if (/sonnet/i.test(id)) return 'sonnet';
   if (/haiku/i.test(id)) return 'haiku';
@@ -109,6 +110,7 @@ const realRun: ClaudeCliRun = (args, stdin, { timeoutMs }) =>
       if (code === 0) resolve(out);
       else reject(new Error(`claude CLI exited ${code}: ${(err || out).trim().slice(0, 400)}`));
     });
+    child.stdin.on('error', () => {}); // the CLI may exit before reading all of stdin (EPIPE); 'close' reports the real failure
     child.stdin.end(stdin);
   });
 

@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   buildArgs,
@@ -48,6 +51,18 @@ describe('claude-cli provider: subscription only', () => {
     expect(cliModel('claude-haiku-5-5')).toBe('haiku');
     expect(cliModel('some-full-id')).toBe('some-full-id');
     expect(cliModel(undefined)).toBeUndefined();
+    expect(cliModel('openai/gpt-5')).toBeUndefined(); // a non-Anthropic gateway id is not passed to the CLI
+  });
+
+  test('a CLI that exits before reading its stdin fails the chat cleanly (no unhandled EPIPE)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-claude-'));
+    const bin = join(dir, 'claude');
+    writeFileSync(bin, '#!/bin/sh\nexit 1\n');
+    chmodSync(bin, 0o755);
+    vi.stubEnv('CLAUDE_BIN', bin);
+    const p = createClaudeCliProvider({ timeoutMs: 10000 });
+    await expect(p.chat({ messages: [{ role: 'user', content: 'x'.repeat(2_000_000) }] } as never)).rejects.toThrow(/exited 1/);
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test('a single user turn is sent verbatim; a longer chat is labelled', () => {
