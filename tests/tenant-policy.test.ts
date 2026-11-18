@@ -24,4 +24,18 @@ describe('tenant-policy FounderOS CRM (SH-0271 W3b)', () => {
   it('reads x-fo-principal while IdP PARKED', () => {
     expect(principalFromHeader('josh')?.userId).toBe('josh');
   });
+
+  it('rejects client:* and empty client tenants (no owner escalation)', () => {
+    expect(principalFromHeader('client:*')).toBeNull();
+    expect(principalFromHeader('client:')).toBeNull();
+    expect(principalFromHeader('client:LetsLoop')?.tenants.has('letsloop')).toBe(
+      true,
+    );
+  });
+
+  it('denies Josh fleet even inside letsloop', () => {
+    expect(canRead(josh(), { tenant: 'letsloop', resource: 'fleet' })).toBe(
+      false,
+    );
+  });
 });

@@ -54,10 +54,17 @@ export function adrien(): Principal {
   };
 }
 
+const TENANT_ID = /^[a-z][a-z0-9_-]{0,63}$/;
+
+/** Client portal principal — never accepts `*` or empty (would escalate to owner). */
 export function clientPortal(tenant: string): Principal {
+  const t = tenant.trim().toLowerCase();
+  if (!t || t === "*" || !TENANT_ID.test(t)) {
+    throw new Error(`invalid client tenant id: ${JSON.stringify(tenant)}`);
+  }
   return {
-    userId: `client:${tenant}`,
-    tenants: new Set([tenant]),
+    userId: `client:${t}`,
+    tenants: new Set([t]),
     role: "reader",
   };
 }
@@ -70,7 +77,14 @@ export function principalFromHeader(
   const v = value.trim().toLowerCase();
   if (v === "josh" || v === "joshua") return josh();
   if (v === "adrien") return adrien();
-  if (v.startsWith("client:")) return clientPortal(v.slice("client:".length));
+  if (v.startsWith("client:")) {
+    const tenant = v.slice("client:".length);
+    try {
+      return clientPortal(tenant);
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
